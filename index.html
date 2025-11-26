@@ -1,0 +1,787 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Candy Crush - Match-3 Puzzle Game</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @keyframes pop {
+            0% { transform: scale(0); }
+            50% { transform: scale(1.2); }
+            100% { transform: scale(1); }
+        }
+
+        @keyframes explode {
+            0% { transform: scale(1); opacity: 1; }
+            100% { transform: scale(2); opacity: 0; }
+        }
+
+        @keyframes fall {
+            from { transform: translateY(-100px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+
+        @keyframes glow {
+            0%, 100% { box-shadow: 0 0 10px currentColor; }
+            50% { box-shadow: 0 0 20px currentColor, 0 0 30px currentColor; }
+        }
+
+        @keyframes pulse-score {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.3); }
+        }
+
+        .candy {
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            animation: pop 0.3s ease;
+        }
+
+        .candy:hover {
+            transform: scale(1.1);
+        }
+
+        .candy.selected {
+            animation: glow 0.5s infinite;
+            transform: scale(1.15);
+        }
+
+        .candy.exploding {
+            animation: explode 0.5s ease forwards;
+        }
+
+        .candy.falling {
+            animation: fall 0.5s ease;
+        }
+
+        .striped-horizontal {
+            background: repeating-linear-gradient(
+                0deg,
+                currentColor,
+                currentColor 3px,
+                rgba(255,255,255,0.3) 3px,
+                rgba(255,255,255,0.3) 6px
+            ) !important;
+        }
+
+        .striped-vertical {
+            background: repeating-linear-gradient(
+                90deg,
+                currentColor,
+                currentColor 3px,
+                rgba(255,255,255,0.3) 3px,
+                rgba(255,255,255,0.3) 6px
+            ) !important;
+        }
+
+        .wrapped {
+            position: relative;
+            border: 3px dashed white !important;
+        }
+
+        .color-bomb {
+            background: radial-gradient(circle, #ff0080, #7928ca, #ff0080) !important;
+            animation: glow 1s infinite;
+        }
+
+        .particle {
+            position: absolute;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            pointer-events: none;
+            animation: particle-fly 0.8s ease-out forwards;
+        }
+
+        @keyframes particle-fly {
+            to {
+                transform: translate(var(--tx), var(--ty)) scale(0);
+                opacity: 0;
+            }
+        }
+
+        .score-popup {
+            position: absolute;
+            font-weight: bold;
+            font-size: 1.5rem;
+            color: #ffd700;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+            pointer-events: none;
+            animation: score-popup 1s ease-out forwards;
+            z-index: 100;
+        }
+
+        @keyframes score-popup {
+            0% { transform: translateY(0) scale(1); opacity: 1; }
+            100% { transform: translateY(-50px) scale(1.5); opacity: 0; }
+        }
+
+        .grid-cell {
+            aspect-ratio: 1;
+            padding: 2px;
+        }
+
+        .combo-indicator {
+            animation: pulse-score 0.5s ease;
+        }
+
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+
+        .game-container {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        }
+
+        .progress-bar {
+            transition: width 0.3s ease;
+        }
+    </style>
+</head>
+<body class="p-4">
+    <div class="max-w-4xl mx-auto">
+        <!-- Header -->
+        <div class="text-center mb-6">
+            <h1 class="text-5xl font-bold text-white mb-2" style="text-shadow: 3px 3px 6px rgba(0,0,0,0.3);">🍬 Candy Crush 🍬</h1>
+            <p class="text-white text-lg">Match 3 or more candies to score!</p>
+        </div>
+
+        <!-- Game Container -->
+        <div class="game-container p-6">
+            <!-- Stats Bar -->
+            <div class="grid grid-cols-4 gap-4 mb-6">
+                <div class="bg-gradient-to-br from-purple-500 to-purple-600 text-white p-4 rounded-lg text-center">
+                    <div class="text-sm font-semibold">Level</div>
+                    <div id="level" class="text-3xl font-bold">1</div>
+                </div>
+                <div class="bg-gradient-to-br from-blue-500 to-blue-600 text-white p-4 rounded-lg text-center">
+                    <div class="text-sm font-semibold">Score</div>
+                    <div id="score" class="text-3xl font-bold">0</div>
+                </div>
+                <div class="bg-gradient-to-br from-green-500 to-green-600 text-white p-4 rounded-lg text-center">
+                    <div class="text-sm font-semibold">Moves</div>
+                    <div id="moves" class="text-3xl font-bold">30</div>
+                </div>
+                <div class="bg-gradient-to-br from-yellow-500 to-orange-500 text-white p-4 rounded-lg text-center">
+                    <div class="text-sm font-semibold">Combo</div>
+                    <div id="combo" class="text-3xl font-bold">×1</div>
+                </div>
+            </div>
+
+            <!-- Target Progress -->
+            <div class="mb-6">
+                <div class="flex justify-between items-center mb-2">
+                    <span class="text-sm font-semibold text-gray-700">Target Score</span>
+                    <span class="text-sm font-semibold text-gray-700"><span id="currentScore">0</span> / <span id="targetScore">1000</span></span>
+                </div>
+                <div class="w-full bg-gray-200 rounded-full h-4">
+                    <div id="progressBar" class="progress-bar bg-gradient-to-r from-green-400 to-blue-500 h-4 rounded-full" style="width: 0%"></div>
+                </div>
+            </div>
+
+            <!-- Game Board -->
+            <div id="gameBoard" class="grid grid-cols-8 gap-1 bg-gradient-to-br from-pink-200 to-purple-200 p-3 rounded-xl mb-6" style="max-width: 500px; margin: 0 auto; position: relative;">
+                <!-- Grid cells will be generated here -->
+            </div>
+
+            <!-- Controls -->
+            <div class="flex gap-4 justify-center">
+                <button id="newGameBtn" class="bg-gradient-to-r from-green-400 to-blue-500 text-white px-8 py-3 rounded-lg font-bold text-lg hover:shadow-lg transform hover:scale-105 transition">
+                    New Game
+                </button>
+                <button id="hintBtn" class="bg-gradient-to-r from-yellow-400 to-orange-500 text-white px-8 py-3 rounded-lg font-bold text-lg hover:shadow-lg transform hover:scale-105 transition">
+                    💡 Hint
+                </button>
+            </div>
+        </div>
+
+        <!-- Modal -->
+        <div id="modal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+            <div class="bg-white rounded-2xl p-8 max-w-md mx-4 text-center transform scale-0 transition-transform duration-300" id="modalContent">
+                <div id="modalTitle" class="text-4xl font-bold mb-4"></div>
+                <div id="modalMessage" class="text-xl mb-6"></div>
+                <button id="modalBtn" class="bg-gradient-to-r from-purple-500 to-pink-500 text-white px-8 py-3 rounded-lg font-bold text-lg hover:shadow-lg transform hover:scale-105 transition">
+                    Continue
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Game Configuration
+        const GRID_SIZE = 8;
+        const CANDY_TYPES = [
+            { color: 'bg-red-500', emoji: '🔴', name: 'red' },
+            { color: 'bg-blue-500', emoji: '🔵', name: 'blue' },
+            { color: 'bg-green-500', emoji: '🟢', name: 'green' },
+            { color: 'bg-yellow-400', emoji: '🟡', name: 'yellow' },
+            { color: 'bg-purple-500', emoji: '🟣', name: 'purple' },
+            { color: 'bg-orange-500', emoji: '🟠', name: 'orange' }
+        ];
+
+        const SPECIAL_TYPES = {
+            STRIPED_H: 'striped-h',
+            STRIPED_V: 'striped-v',
+            WRAPPED: 'wrapped',
+            COLOR_BOMB: 'color-bomb'
+        };
+
+        // Game State
+        let grid = [];
+        let score = 0;
+        let level = 1;
+        let moves = 30;
+        let targetScore = 1000;
+        let combo = 1;
+        let selectedCandy = null;
+        let isProcessing = false;
+
+        // Initialize Game
+        function initGame() {
+            score = 0;
+            moves = 30;
+            level = 1;
+            targetScore = 1000;
+            combo = 1;
+            updateUI();
+            createGrid();
+        }
+
+        function createGrid() {
+            const board = document.getElementById('gameBoard');
+            board.innerHTML = '';
+            grid = [];
+
+            for (let row = 0; row < GRID_SIZE; row++) {
+                grid[row] = [];
+                for (let col = 0; col < GRID_SIZE; col++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'grid-cell';
+                    cell.dataset.row = row;
+                    cell.dataset.col = col;
+                    
+                    const candy = createCandy(row, col);
+                    cell.appendChild(candy);
+                    board.appendChild(cell);
+                    grid[row][col] = {
+                        type: candy.dataset.type,
+                        special: null,
+                        element: candy
+                    };
+                }
+            }
+
+            // Ensure no initial matches
+            removeInitialMatches();
+        }
+
+        function createCandy(row, col, type = null) {
+            const candyType = type || CANDY_TYPES[Math.floor(Math.random() * CANDY_TYPES.length)];
+            const candy = document.createElement('div');
+            candy.className = `candy ${candyType.color}`;
+            candy.dataset.type = candyType.name;
+            candy.dataset.row = row;
+            candy.dataset.col = col;
+            candy.textContent = candyType.emoji;
+            
+            candy.addEventListener('click', () => selectCandy(row, col));
+            
+            return candy;
+        }
+
+        function removeInitialMatches() {
+            let hasMatches = true;
+            while (hasMatches) {
+                hasMatches = false;
+                for (let row = 0; row < GRID_SIZE; row++) {
+                    for (let col = 0; col < GRID_SIZE; col++) {
+                        const matches = findMatchesAt(row, col);
+                        if (matches.length >= 3) {
+                            hasMatches = true;
+                            const newType = CANDY_TYPES[Math.floor(Math.random() * CANDY_TYPES.length)];
+                            grid[row][col].type = newType.name;
+                            grid[row][col].element.className = `candy ${newType.color}`;
+                            grid[row][col].element.textContent = newType.emoji;
+                            grid[row][col].element.dataset.type = newType.name;
+                        }
+                    }
+                }
+            }
+        }
+
+        function selectCandy(row, col) {
+            if (isProcessing) return;
+
+            if (selectedCandy) {
+                const rowDiff = Math.abs(selectedCandy.row - row);
+                const colDiff = Math.abs(selectedCandy.col - col);
+                
+                // Check if adjacent
+                if ((rowDiff === 1 && colDiff === 0) || (rowDiff === 0 && colDiff === 1)) {
+                    swapCandies(selectedCandy.row, selectedCandy.col, row, col);
+                }
+                
+                // Deselect
+                grid[selectedCandy.row][selectedCandy.col].element.classList.remove('selected');
+                selectedCandy = null;
+            } else {
+                selectedCandy = { row, col };
+                grid[row][col].element.classList.add('selected');
+            }
+        }
+
+        async function swapCandies(row1, col1, row2, col2) {
+            if (isProcessing) return;
+            isProcessing = true;
+
+            // Swap in grid
+            const temp = grid[row1][col1];
+            grid[row1][col1] = grid[row2][col2];
+            grid[row2][col2] = temp;
+
+            // Update positions
+            grid[row1][col1].element.dataset.row = row1;
+            grid[row1][col1].element.dataset.col = col1;
+            grid[row2][col2].element.dataset.row = row2;
+            grid[row2][col2].element.dataset.col = col2;
+
+            // Animate swap
+            await animateSwap(row1, col1, row2, col2);
+
+            // Check for matches
+            const matches1 = findMatchesAt(row1, col1);
+            const matches2 = findMatchesAt(row2, col2);
+
+            if (matches1.length >= 3 || matches2.length >= 3) {
+                moves--;
+                updateUI();
+                await processMatches();
+            } else {
+                // Swap back if no match
+                const temp = grid[row1][col1];
+                grid[row1][col1] = grid[row2][col2];
+                grid[row2][col2] = temp;
+                
+                grid[row1][col1].element.dataset.row = row1;
+                grid[row1][col1].element.dataset.col = col1;
+                grid[row2][col2].element.dataset.row = row2;
+                grid[row2][col2].element.dataset.col = col2;
+                
+                await animateSwap(row1, col1, row2, col2);
+            }
+
+            isProcessing = false;
+            checkGameStatus();
+        }
+
+        function animateSwap(row1, col1, row2, col2) {
+            return new Promise(resolve => {
+                const cell1 = document.querySelector(`[data-row="${row1}"][data-col="${col1}"].grid-cell`);
+                const cell2 = document.querySelector(`[data-row="${row2}"][data-col="${col2}"].grid-cell`);
+                
+                cell1.innerHTML = '';
+                cell2.innerHTML = '';
+                cell1.appendChild(grid[row1][col1].element);
+                cell2.appendChild(grid[row2][col2].element);
+                
+                setTimeout(resolve, 300);
+            });
+        }
+
+        function findMatchesAt(row, col) {
+            const type = grid[row][col].type;
+            const matches = [{ row, col }];
+
+            // Check horizontal
+            let left = col - 1;
+            while (left >= 0 && grid[row][left].type === type) {
+                matches.push({ row, col: left });
+                left--;
+            }
+
+            let right = col + 1;
+            while (right < GRID_SIZE && grid[row][right].type === type) {
+                matches.push({ row, col: right });
+                right++;
+            }
+
+            const horizontalMatches = matches.length >= 3 ? [...matches] : [];
+
+            // Check vertical
+            const verticalMatches = [{ row, col }];
+            let up = row - 1;
+            while (up >= 0 && grid[up][col].type === type) {
+                verticalMatches.push({ row: up, col });
+                up--;
+            }
+
+            let down = row + 1;
+            while (down < GRID_SIZE && grid[down][col].type === type) {
+                verticalMatches.push({ row: down, col });
+                down++;
+            }
+
+            const vMatches = verticalMatches.length >= 3 ? verticalMatches : [];
+
+            // Combine unique matches
+            const allMatches = [...horizontalMatches, ...vMatches];
+            const uniqueMatches = [];
+            const seen = new Set();
+
+            for (const match of allMatches) {
+                const key = `${match.row},${match.col}`;
+                if (!seen.has(key)) {
+                    seen.add(key);
+                    uniqueMatches.push(match);
+                }
+            }
+
+            return uniqueMatches;
+        }
+
+        function findAllMatches() {
+            const allMatches = new Set();
+            
+            for (let row = 0; row < GRID_SIZE; row++) {
+                for (let col = 0; col < GRID_SIZE; col++) {
+                    const matches = findMatchesAt(row, col);
+                    if (matches.length >= 3) {
+                        matches.forEach(m => allMatches.add(`${m.row},${m.col}`));
+                    }
+                }
+            }
+
+            return Array.from(allMatches).map(key => {
+                const [row, col] = key.split(',').map(Number);
+                return { row, col };
+            });
+        }
+
+        async function processMatches() {
+            let hasMatches = true;
+            let currentCombo = 1;
+
+            while (hasMatches) {
+                const matches = findAllMatches();
+                
+                if (matches.length === 0) {
+                    hasMatches = false;
+                    combo = 1;
+                    updateUI();
+                    break;
+                }
+
+                combo = currentCombo;
+                updateUI();
+
+                // Create special candies for 4+ matches
+                const specialCandies = detectSpecialCandies();
+                
+                // Remove matched candies
+                await removeMatches(matches);
+                
+                // Add special candies
+                for (const special of specialCandies) {
+                    if (grid[special.row] && grid[special.row][special.col]) {
+                        grid[special.row][special.col].special = special.type;
+                        applySpecialVisual(special.row, special.col, special.type);
+                    }
+                }
+
+                // Calculate score
+                const points = matches.length * 10 * combo;
+                score += points;
+                
+                // Show score popup
+                showScorePopup(points, matches[0].row, matches[0].col);
+                
+                updateUI();
+
+                // Drop candies
+                await dropCandies();
+
+                // Fill empty spaces
+                await fillGrid();
+
+                currentCombo++;
+                await new Promise(resolve => setTimeout(resolve, 300));
+            }
+        }
+
+        function detectSpecialCandies() {
+            const specials = [];
+            
+            for (let row = 0; row < GRID_SIZE; row++) {
+                for (let col = 0; col < GRID_SIZE; col++) {
+                    const matches = findMatchesAt(row, col);
+                    
+                    if (matches.length >= 5) {
+                        specials.push({ row, col, type: SPECIAL_TYPES.COLOR_BOMB });
+                    } else if (matches.length === 4) {
+                        // Determine if horizontal or vertical
+                        const horizontal = matches.every(m => m.row === row);
+                        specials.push({ 
+                            row, 
+                            col, 
+                            type: horizontal ? SPECIAL_TYPES.STRIPED_V : SPECIAL_TYPES.STRIPED_H 
+                        });
+                    }
+                }
+            }
+            
+            return specials;
+        }
+
+        function applySpecialVisual(row, col, type) {
+            const candy = grid[row][col].element;
+            
+            switch(type) {
+                case SPECIAL_TYPES.STRIPED_H:
+                    candy.classList.add('striped-horizontal');
+                    break;
+                case SPECIAL_TYPES.STRIPED_V:
+                    candy.classList.add('striped-vertical');
+                    break;
+                case SPECIAL_TYPES.WRAPPED:
+                    candy.classList.add('wrapped');
+                    break;
+                case SPECIAL_TYPES.COLOR_BOMB:
+                    candy.classList.add('color-bomb');
+                    candy.textContent = '💣';
+                    break;
+            }
+        }
+
+        function removeMatches(matches) {
+            return new Promise(resolve => {
+                matches.forEach(({ row, col }) => {
+                    const candy = grid[row][col].element;
+                    candy.classList.add('exploding');
+                    createParticles(row, col);
+                });
+
+                setTimeout(() => {
+                    matches.forEach(({ row, col }) => {
+                        grid[row][col].element.remove();
+                        grid[row][col] = null;
+                    });
+                    resolve();
+                }, 500);
+            });
+        }
+
+        function createParticles(row, col) {
+            const cell = document.querySelector(`[data-row="${row}"][data-col="${col}"].grid-cell`);
+            const rect = cell.getBoundingClientRect();
+            const board = document.getElementById('gameBoard');
+            
+            for (let i = 0; i < 8; i++) {
+                const particle = document.createElement('div');
+                particle.className = 'particle';
+                particle.style.left = rect.left - board.getBoundingClientRect().left + rect.width / 2 + 'px';
+                particle.style.top = rect.top - board.getBoundingClientRect().top + rect.height / 2 + 'px';
+                particle.style.background = grid[row][col].element.style.background || 
+                                           CANDY_TYPES.find(c => c.name === grid[row][col].type)?.color.replace('bg-', '');
+                
+                const angle = (Math.PI * 2 * i) / 8;
+                const distance = 50 + Math.random() * 30;
+                particle.style.setProperty('--tx', Math.cos(angle) * distance + 'px');
+                particle.style.setProperty('--ty', Math.sin(angle) * distance + 'px');
+                
+                board.appendChild(particle);
+                
+                setTimeout(() => particle.remove(), 800);
+            }
+        }
+
+        function showScorePopup(points, row, col) {
+            const cell = document.querySelector(`[data-row="${row}"][data-col="${col}"].grid-cell`);
+            const board = document.getElementById('gameBoard');
+            const rect = cell.getBoundingClientRect();
+            const boardRect = board.getBoundingClientRect();
+            
+            const popup = document.createElement('div');
+            popup.className = 'score-popup';
+            popup.textContent = `+${points}`;
+            popup.style.left = rect.left - boardRect.left + rect.width / 2 + 'px';
+            popup.style.top = rect.top - boardRect.top + 'px';
+            
+            board.appendChild(popup);
+            
+            setTimeout(() => popup.remove(), 1000);
+        }
+
+        async function dropCandies() {
+            for (let col = 0; col < GRID_SIZE; col++) {
+                let emptyRow = GRID_SIZE - 1;
+                
+                for (let row = GRID_SIZE - 1; row >= 0; row--) {
+                    if (grid[row][col] !== null) {
+                        if (row !== emptyRow) {
+                            grid[emptyRow][col] = grid[row][col];
+                            grid[row][col] = null;
+                            
+                            grid[emptyRow][col].element.dataset.row = emptyRow;
+                            
+                            const newCell = document.querySelector(`[data-row="${emptyRow}"][data-col="${col}"].grid-cell`);
+                            newCell.innerHTML = '';
+                            newCell.appendChild(grid[emptyRow][col].element);
+                        }
+                        emptyRow--;
+                    }
+                }
+            }
+            
+            await new Promise(resolve => setTimeout(resolve, 300));
+        }
+
+        async function fillGrid() {
+            for (let col = 0; col < GRID_SIZE; col++) {
+                for (let row = GRID_SIZE - 1; row >= 0; row--) {
+                    if (grid[row][col] === null) {
+                        const candy = createCandy(row, col);
+                        candy.classList.add('falling');
+                        
+                        const cell = document.querySelector(`[data-row="${row}"][data-col="${col}"].grid-cell`);
+                        cell.appendChild(candy);
+                        
+                        grid[row][col] = {
+                            type: candy.dataset.type,
+                            special: null,
+                            element: candy
+                        };
+                    }
+                }
+            }
+            
+            await new Promise(resolve => setTimeout(resolve, 500));
+        }
+
+        function updateUI() {
+            document.getElementById('score').textContent = score;
+            document.getElementById('level').textContent = level;
+            document.getElementById('moves').textContent = moves;
+            document.getElementById('combo').textContent = `×${combo}`;
+            document.getElementById('currentScore').textContent = score;
+            document.getElementById('targetScore').textContent = targetScore;
+            
+            const progress = Math.min((score / targetScore) * 100, 100);
+            document.getElementById('progressBar').style.width = progress + '%';
+            
+            if (combo > 1) {
+                document.getElementById('combo').classList.add('combo-indicator');
+                setTimeout(() => {
+                    document.getElementById('combo').classList.remove('combo-indicator');
+                }, 500);
+            }
+        }
+
+        function checkGameStatus() {
+            if (score >= targetScore) {
+                showModal('🎉 Level Complete! 🎉', `Amazing! You scored ${score} points!`, () => {
+                    level++;
+                    targetScore = level * 1000;
+                    moves = 30;
+                    combo = 1;
+                    updateUI();
+                    createGrid();
+                });
+            } else if (moves <= 0) {
+                showModal('😢 Game Over', `You scored ${score} points. Try again!`, () => {
+                    initGame();
+                });
+            }
+        }
+
+        function showModal(title, message, callback) {
+            const modal = document.getElementById('modal');
+            const modalContent = document.getElementById('modalContent');
+            document.getElementById('modalTitle').textContent = title;
+            document.getElementById('modalMessage').textContent = message;
+            
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+            setTimeout(() => {
+                modalContent.style.transform = 'scale(1)';
+            }, 10);
+            
+            document.getElementById('modalBtn').onclick = () => {
+                modalContent.style.transform = 'scale(0)';
+                setTimeout(() => {
+                    modal.classList.add('hidden');
+                    modal.classList.remove('flex');
+                    callback();
+                }, 300);
+            };
+        }
+
+        function showHint() {
+            // Find a possible move
+            for (let row = 0; row < GRID_SIZE; row++) {
+                for (let col = 0; col < GRID_SIZE - 1; col++) {
+                    // Try swapping with right
+                    const temp = grid[row][col];
+                    grid[row][col] = grid[row][col + 1];
+                    grid[row][col + 1] = temp;
+                    
+                    const matches1 = findMatchesAt(row, col);
+                    const matches2 = findMatchesAt(row, col + 1);
+                    
+                    // Swap back
+                    grid[row][col + 1] = grid[row][col];
+                    grid[row][col] = temp;
+                    
+                    if (matches1.length >= 3 || matches2.length >= 3) {
+                        grid[row][col].element.classList.add('selected');
+                        setTimeout(() => {
+                            grid[row][col].element.classList.remove('selected');
+                        }, 1500);
+                        return;
+                    }
+                }
+            }
+            
+            // Try vertical swaps
+            for (let row = 0; row < GRID_SIZE - 1; row++) {
+                for (let col = 0; col < GRID_SIZE; col++) {
+                    const temp = grid[row][col];
+                    grid[row][col] = grid[row + 1][col];
+                    grid[row + 1][col] = temp;
+                    
+                    const matches1 = findMatchesAt(row, col);
+                    const matches2 = findMatchesAt(row + 1, col);
+                    
+                    grid[row + 1][col] = grid[row][col];
+                    grid[row][col] = temp;
+                    
+                    if (matches1.length >= 3 || matches2.length >= 3) {
+                        grid[row][col].element.classList.add('selected');
+                        setTimeout(() => {
+                            grid[row][col].element.classList.remove('selected');
+                        }, 1500);
+                        return;
+                    }
+                }
+            }
+        }
+
+        // Event Listeners
+        document.getElementById('newGameBtn').addEventListener('click', initGame);
+        document.getElementById('hintBtn').addEventListener('click', showHint);
+
+        // Initialize the game
+        initGame();
+    </script>
+</body>
+</html>
